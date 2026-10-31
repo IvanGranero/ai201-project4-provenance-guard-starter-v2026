@@ -38,8 +38,31 @@
 
 <!-- The path a submission takes, from arriving to the label a reader sees.
      Six or seven steps — this is the trace you wrote in Milestone 1. -->
+Path from text submission to label:
 
+1. Text arrives at /submit
+The user submits a JSON payload containing text and creator_id.
+The route extracts those values.
 
+2. Model signal is calculated
+detector.model_signal(text) evaluates how predictable the text is using a local language model.
+It converts perplexity into a 0-1 score where higher means more likely AI.
+
+3. Style signal is calculated
+stylometry.style_signal(text) analyzes the shape of the writing rather than its meaning.
+It uses sentence variation, vocabulary diversity, and punctuation patterns to produce a second score.
+
+4. Signals are combined
+scoring.combine_signals(model_score, style_score) combines both signals into a single overall score.
+
+5. Score is converted to a decision
+scoring.score_to_label(score) converts the numeric score into a classification such as human, unsure, or AI.
+
+6. Decision is logged
+The system records the content ID, signal scores, combined score, and decision in the audit log for transparency and future review.
+
+7. Label is returned to the user
+The user receives the content ID, signal scores, combined score, classification, and label text.
 
 ---
 
@@ -54,18 +77,32 @@
 ### Signal one — the model signal
 
 **What it measures:**
+Signal One measures predictability. It uses a language model to calculate perplexity, which estimates how surprising the text is to another language model. Text that is easy for the model to predict receives a higher AI score, while text that is harder to predict receives a lower AI score.
 
 **Why that might differ between human and AI writing:**
+AI systems generate text by repeatedly selecting likely next words. As a result, AI-generated text is often highly predictable to another language model.
+
+Human writing can contain unusual word choices, unexpected transitions, personal phrasing, and less predictable sentence structures, which may increase perplexity and reduce the AI score.
 
 **What it can't see:**
+Predictability is not authorship. Plain human writing can look AI-generated.
+A real person may write using simple vocabulary, short sentences, and straightforward language. The detector may classify this as AI-like because it is highly predictable.
 
 ### Signal two — the style signal
 
 **What it measures:**
+Signal Two measures the statistical shape of the writing.
+It analyzes: sentence length variation, vocabulary diversity, punctuation usage
+without attempting to understand the meaning of the text.
 
 **Why that might differ between human and AI writing:**
+AI-generated writing often trends toward: medium-length sentences, consistent structure, repeated vocabulary.
+Human writing is often less regular, with greater variation in sentence lengths and vocabulary choices.
 
 **What it can't see:**
+Writing shape is not meaning. Small formatting changes can affect scores without changing the message.
+Signal Two cannot understand content or meaning. This signal cannot read. It has no idea what the text says.
+A person can alter sentence breaks, punctuation, formatting, or add typos without changing the meaning. Those changes may significantly alter the style score.
 
 ### The combining rule
 
@@ -168,6 +205,12 @@ $ curl "http://127.0.0.1:5000/log?limit=3"
 - *What I asked for:*
 - *What came back:*
 - *What I changed:*
+
+---
+
+## Stretch Features
+A third signal, with a written note on how you weighted the three.
+
 
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
 
