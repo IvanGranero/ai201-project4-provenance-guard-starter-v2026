@@ -161,11 +161,18 @@ A person can alter sentence breaks, punctuation, formatting, or add typos withou
 ```bash
 $ curl -X POST http://127.0.0.1:5000/submit \
   -H "Content-Type: application/json" \
-  -d '{"text": "...", "creator_id": "..."}'
+  -d '{"text": "Yesterday I walked to the small shop near my apartment to buy coffee. It was raining lightly, and I forgot my umbrella, so I waited under the awning for a few minutes. The person behind the counter asked how my week was going, and we talked about the weather before I headed home.", "creator_id": "readme-sample"}'
 ```
 
 ```json
-
+{
+  "confidence": 0.0,
+  "content_id": "55b7bfd4-b0e7-4469-8408-2e7b1511a9b1",
+  "guess": "pending",
+  "label": "pending",
+  "model_score": 0.809,
+  "style_score": 0.0
+}
 ```
 
 **An appeal**
@@ -183,11 +190,26 @@ $ curl -X POST http://127.0.0.1:5000/appeal \
 **What the log shows afterwards**
 
 ```bash
-$ curl "http://127.0.0.1:5000/log?limit=3"
+$ curl "http://127.0.0.1:5000/log?limit=1"
 ```
 
 ```json
-
+{
+  "count": 1,
+  "entries": [
+    {
+      "combined_score": null,
+      "content_id": "55b7bfd4-b0e7-4469-8408-2e7b1511a9b1",
+      "creator_id": "readme-sample",
+      "guess": "pending",
+      "label": "pending",
+      "model_score": 0.809,
+      "status": "decided",
+      "style_score": null,
+      "timestamp": "2026-10-31T17:48:12+00:00"
+    }
+  ]
+}
 ```
 
 ---
