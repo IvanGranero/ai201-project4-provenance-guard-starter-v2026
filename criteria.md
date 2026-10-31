@@ -42,63 +42,51 @@ Two things worth knowing before you pick numbers:
   a **miss**.
 
 ---
-## 1.
-
+## 1. False Positives
 <!-- Your criterion. It must name a number. -->
-
-
+Criterion: Of 10 pieces of writing that I personally wrote without AI assistance, no more than 1 may be labeled high-confidence AI.
 
 **Why this target:**
-
+The biggest harm this system can cause is falsely accusing a real writer. Missing some AI generated content is less harmful than incorrectly labeling human work as AI. This criterion prioritizes protecting legitimate users from false accusations.
 
 
 ---
 
-## 2.
-
+## 2. Score Spread
 <!-- Your criterion. -->
-
-
+Criterion: The average score for 5 clearly AI generated samples must be at least 0.25 higher than the average score for 5 clearly human-written samples.
 
 **Why this target:**
-
-
+If both groups receive nearly identical scores, the detector is not providing meaningful information. A noticeable separation demonstrates that the two signals are contributing useful evidence rather than random noise.
 
 ---
 
-## 3.
-
+## 3. Label Coverage
 <!-- Your criterion. -->
-
-
+Criterion: All three labels (human, unsure, and AI) must be reachable. During testing, I must produce at least one example that receives each label.
 
 **Why this target:**
-
-
+A label that can never be produced indicates a broken threshold configuration. The system was designed with three outcomes, so all three outcomes must actually occur.
 
 ---
 
-## 4.
-
+## 4. Appeal Path
 <!-- Your criterion. -->
-
-
+Criterion: For 100% of valid appeals submitted with an existing content_id:
+the appeal is recorded in the audit log, and
+the submission status changes to under_review.
 
 **Why this target:**
-
-
+The appeal process is the user's protection against a false positive. If even one valid appeal is silently lost or fails to change status, the person affected has no practical way to challenge the decision.
 
 ---
 
-## 5.
-
+## 5. Bad Input Handling
 <!-- Your criterion. -->
-
-
+Criterion: For 100% of requests where text is missing, empty, or exceeds the maximum accepted size, the service returns a structured error response and does not crash.
 
 **Why this target:**
-
-
+Malformed input is common in real systems. The service should fail predictably and provide useful feedback rather than producing a server error or becoming unavailable.
 
 ---
 
