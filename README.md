@@ -109,9 +109,14 @@ A person can alter sentence breaks, punctuation, formatting, or add typos withou
 <!-- Write the rule in words, then give the numbers. What happens when the two
      signals disagree? -->
 
-**The rule:**
+**The rule:** Take the arithmetic mean of the model and style scores. Both
+signals count equally; when they disagree, neither can overrule the other, so
+the combined score falls between them. A strong split pulls the result toward
+the middle rather than producing a confident decision from just one signal.
 
-**The numbers:**
+**The numbers:** `WEIGHT_MODEL_SIGNAL = 0.5` and
+`WEIGHT_STYLE_SIGNAL = 0.5` in `config.py`. The unsure band is `0.35–0.65`;
+the weighted mean of scores `0.9` and `0.1`, for example, is `0.50`.
 
 **Where it lives:** `scoring.py::combine_signals`
 
@@ -120,7 +125,29 @@ A person can alter sentence breaks, punctuation, formatting, or add typos withou
 
 **A case where my two signals split, and what my rule does with it:**
 
+Three test pieces run through both signals** (local GPT-2 model signal):
 
+1. "The train was late again. I bought a warm pretzel while I waited. By the
+   time I got home, it had stopped raining."
+2. "I tried to make dinner after work, but I was tired and burned the onions.
+   We ordered noodles instead. Honestly, it was a better plan."
+3. "Effective communication is essential for successful collaboration. Clear
+   goals help teams coordinate their efforts and make informed decisions.
+   Regular feedback supports continuous improvement and helps organizations
+   achieve better outcomes."
+
+| Test piece | Model signal | Style signal | Combined score |
+|---|---:|---:|---:|
+| Train and pretzel | 0.6645 | 0.3918 | 0.5282 |
+| Dinner after work | 0.4289 | 0.3051 | 0.3670 |
+| Conventional formal prose | 0.5394 | 0.5309 | 0.5352 |
+
+The two signals agree on which side of `0.50` the dinner sample and the formal
+prose sample fall; they disagree on the train sample. There the model signal
+leans AI-like (`0.6645`) while the style signal leans human-like (`0.3918`).
+The equal-weight mean is `0.5282`, which lands in the unsure band instead of
+letting either signal make a confident claim. These are heuristic scores, not
+proof of who wrote any sample.
 
 ---
 
@@ -133,16 +160,18 @@ A person can alter sentence breaks, punctuation, formatting, or add typos withou
 
 | Label | Score range | The exact text a reader sees |
 |---|---|---|
-| high-confidence human |  |  |
-| unsure |  |  |
-| high-confidence AI |  |  |
+| high-confidence human | 0.00–0.35 inclusive | This text has patterns our system associates with human writing. This is not proof of authorship. |
+| unsure | >0.35 and <0.65 | Our signals are inconclusive; we can't confidently estimate how this text was written. |
+| high-confidence AI | 0.65–1.00 inclusive | This text has patterns our system associates with AI-generated writing. This is not proof of authorship. |
 
 **Why I worded the "unsure" one this way:**
 <!-- It's the hardest of the three. It has to admit uncertainty without
      sounding like an accusation, because the person reading it may well have
      written every word themselves. -->
 
-
+The unsure label says what the system cannot determine without treating an
+uncertain score as an accusation. A person can appeal if the result concerns
+their own writing.
 
 ---
 
@@ -161,17 +190,18 @@ A person can alter sentence breaks, punctuation, formatting, or add typos withou
 ```bash
 $ curl -X POST http://127.0.0.1:5000/submit \
   -H "Content-Type: application/json" \
-  -d '{"text": "Yesterday I walked to the small shop near my apartment to buy coffee. It was raining lightly, and I forgot my umbrella, so I waited under the awning for a few minutes. The person behind the counter asked how my week was going, and we talked about the weather before I headed home.", "creator_id": "readme-sample"}'
+  -d '{"text": "The train was late again. I bought a warm pretzel while I waited. By the time I got home, it had stopped raining.", "creator_id": "readme-sample"}'
 ```
 
 ```json
 {
-  "confidence": 0.0,
-  "content_id": "55b7bfd4-b0e7-4469-8408-2e7b1511a9b1",
-  "guess": "pending",
-  "label": "pending",
-  "model_score": 0.809,
-  "style_score": 0.0
+  "combined_score": 0.5282,
+  "confidence": 0.5282,
+  "content_id": "11074571-0ee3-4cbb-a6c7-fcf0c565b752",
+  "guess": "unsure",
+  "label": "Our signals are inconclusive; we can't confidently estimate how this text was written.",
+  "model_score": 0.6645,
+  "style_score": 0.3918
 }
 ```
 
@@ -180,33 +210,45 @@ $ curl -X POST http://127.0.0.1:5000/submit \
 ```bash
 $ curl -X POST http://127.0.0.1:5000/appeal \
   -H "Content-Type: application/json" \
-  -d '{"content_id": "...", "reasoning": "..."}'
+  -d '{"content_id": "11074571-0ee3-4cbb-a6c7-fcf0c565b752", "reasoning": "I wrote this myself."}'
 ```
 
 ```json
-
+{
+  "content_id": "11074571-0ee3-4cbb-a6c7-fcf0c565b752",
+  "message": "Your appeal has been recorded for review.",
+  "status": "under_review"
+}
 ```
 
 **What the log shows afterwards**
 
 ```bash
-$ curl "http://127.0.0.1:5000/log?limit=1"
+$ curl "http://127.0.0.1:5000/log?limit=2"
 ```
 
 ```json
 {
-  "count": 1,
+  "count": 2,
   "entries": [
     {
-      "combined_score": null,
-      "content_id": "55b7bfd4-b0e7-4469-8408-2e7b1511a9b1",
+      "combined_score": 0.5282,
+      "content_id": "11074571-0ee3-4cbb-a6c7-fcf0c565b752",
       "creator_id": "readme-sample",
-      "guess": "pending",
-      "label": "pending",
-      "model_score": 0.809,
+      "guess": "unsure",
+      "label": "Our signals are inconclusive; we can't confidently estimate how this text was written.",
+      "model_score": 0.6645,
       "status": "decided",
-      "style_score": null,
-      "timestamp": "2026-10-31T17:48:12+00:00"
+      "style_score": 0.3918,
+      "timestamp": "2026-11-01T12:48:40+00:00"
+    },
+    {
+      "content_id": "11074571-0ee3-4cbb-a6c7-fcf0c565b752",
+      "creator_id": "readme-sample",
+      "event": "appeal",
+      "reasoning": "I wrote this myself.",
+      "status": "under_review",
+      "timestamp": "2026-11-01T12:48:40+00:00"
     }
   ]
 }
