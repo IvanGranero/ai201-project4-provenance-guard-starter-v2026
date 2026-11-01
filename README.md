@@ -38,31 +38,32 @@
 
 <!-- The path a submission takes, from arriving to the label a reader sees.
      Six or seven steps — this is the trace you wrote in Milestone 1. -->
-Path from text submission to label:
+Path from submission to label:
 
-1. Text arrives at /submit
-The user submits a JSON payload containing text and creator_id.
-The route extracts those values.
+1. A client sends `POST /submit` with a JSON object containing non-empty
+   `text` and `creator_id`. The route rejects invalid JSON or missing values
+   before scoring.
+2. `detector.model_signal(text)` uses local GPT-2 perplexity to estimate how
+   predictable the text is; a higher score means more AI-like.
+3. `stylometry.style_signal(text)` measures sentence-length spread,
+   type-token ratio, and punctuation density without reading meaning.
+4. If `AI201_WATERMARK_KEY` is configured, `watermark.detect_watermark(text)`
+   checks for the keyed watermark produced by this project's generator.
+   Positive detection adds evidence; a missing or inconclusive watermark is
+   reported but is not treated as human evidence.
+5. `scoring.combine_signals(...)` takes the weighted mean of the model and
+   style scores, plus positive watermark evidence when present.
+6. `scoring.score_to_label(combined_score)` maps scores at or below `0.35` to
+   human, scores at or above `0.65` to AI, and the intervening range to unsure.
+7. The route creates a `content_id` and writes all scores, watermark status,
+   guess, and label to the append-only audit log.
+8. The JSON response returns the `content_id`, signals, combined score
+   (`confidence`), guess, and reader-facing label.
 
-2. Model signal is calculated
-detector.model_signal(text) evaluates how predictable the text is using a local language model.
-It converts perplexity into a 0-1 score where higher means more likely AI.
-
-3. Style signal is calculated
-stylometry.style_signal(text) analyzes the shape of the writing rather than its meaning.
-It uses sentence variation, vocabulary diversity, and punctuation patterns to produce a second score.
-
-4. Signals are combined
-scoring.combine_signals(model_score, style_score) combines both signals into a single overall score.
-
-5. Score is converted to a decision
-scoring.score_to_label(score) converts the numeric score into a classification such as human, unsure, or AI.
-
-6. Decision is logged
-The system records the content ID, signal scores, combined score, and decision in the audit log for transparency and future review.
-
-7. Label is returned to the user
-The user receives the content ID, signal scores, combined score, classification, and label text.
+For `POST /appeal`, the writer supplies a prior `content_id` and reasoning.
+The route records an `under_review` appeal event beside the original decision;
+the audit log preserves the original decision rather than overwriting it.
+`GET /log` returns the recorded entries.
 
 ---
 
@@ -104,19 +105,41 @@ Writing shape is not meaning. Small formatting changes can affect scores without
 Signal Two cannot understand content or meaning. This signal cannot read. It has no idea what the text says.
 A person can alter sentence breaks, punctuation, formatting, or add typos without changing the meaning. Those changes may significantly alter the style score.
 
+### Signal three — the watermark signal
+
+**What it measures:** When configured with `AI201_WATERMARK_KEY`,
+`watermark.detect_watermark` checks whether text contains a statistically
+unusual share of tokens favored by `watermark.generate` using the matching
+secret key. The detector reports a z-score and status. Text below the minimum
+length is reported as insufficient evidence.
+
+**Why it might differ between human and AI writing:** A generator that embeds
+this watermark deliberately biases token selection according to a keyed,
+context-dependent token set. Text produced by that instrumented path may
+therefore carry detectable evidence.
+
+**What it can't see:** This only detects our own matching watermark. It cannot
+identify output from arbitrary AI systems or GPT-2 text generated without the
+watermark. Editing may remove the evidence. “Not detected,” “insufficient
+text,” and “not configured” are not proof of human authorship.
+
 ### The combining rule
 
 <!-- Write the rule in words, then give the numbers. What happens when the two
      signals disagree? -->
 
-**The rule:** Take the arithmetic mean of the model and style scores. Both
-signals count equally; when they disagree, neither can overrule the other, so
-the combined score falls between them. A strong split pulls the result toward
-the middle rather than producing a confident decision from just one signal.
+**The rule:** Use a weighted mean: model `0.45`, style `0.45`, and positive
+watermark evidence `0.10`. A positive watermark detection contributes a score
+of `1.0`. If no watermark is detected, the watermark signal is omitted and the
+other two weights are normalized, preserving their equal-weight mean. Thus
+“not detected,” “insufficient text,” or “not configured” does not lower the
+score or count as evidence for human authorship.
 
-**The numbers:** `WEIGHT_MODEL_SIGNAL = 0.5` and
-`WEIGHT_STYLE_SIGNAL = 0.5` in `config.py`. The unsure band is `0.35–0.65`;
-the weighted mean of scores `0.9` and `0.1`, for example, is `0.50`.
+**The numbers:** `WEIGHT_MODEL_SIGNAL = 0.45`,
+`WEIGHT_STYLE_SIGNAL = 0.45`, and `WEIGHT_WATERMARK_SIGNAL = 0.10` in
+`config.py`. The unsure band is `>0.35` and `<0.65`. With no positive
+watermark, scores `0.9` and `0.1` still combine to `0.50`; with a positive
+watermark detection, the combined score becomes `0.55`.
 
 **Where it lives:** `scoring.py::combine_signals`
 
@@ -125,7 +148,7 @@ the weighted mean of scores `0.9` and `0.1`, for example, is `0.50`.
 
 **A case where my two signals split, and what my rule does with it:**
 
-Three test pieces run through both signals** (local GPT-2 model signal):
+Three test pieces run through the model and style signals (local GPT-2 model signal):
 
 1. "The train was late again. I bought a warm pretzel while I waited. By the
    time I got home, it had stopped raining."
@@ -272,22 +295,85 @@ $ curl "http://127.0.0.1:5000/log?limit=2"
 
 ## How I Used AI
 
-**Moment 1**
+**Moment 1 — generating calibration samples**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked the AI assistant to help create three contrasting
+  samples for checking the detector: clearly AI-like prose, clearly human
+  prose, and formal human prose. I also used the clearly-AI sample as the base
+  for a lightly edited AI example.
+- *What came back:* The samples made it possible to run both signals on the
+  same text. In this local GPT-2 run, the clearly-AI sample scored
+  `model=0.8473`, `style=0.4468`; the clearly-human sample scored
+  `0.4978` and `0.3838`; and the formal-human sample scored `0.6497` and
+  `0.4991`. The lightly edited variant scored `0.7299` and `0.4557`.
+- *What I changed:* I compared the individual signal values instead of
+  treating the combined label as ground truth. All four combined results fell
+  in the unsure range, so I recorded that limitation and did not claim these
+  few generated samples validate detector accuracy.
 
-**Moment 2**
+**Moment 2 — adding a watermark generator and detector**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked the assistant to create `watermark.py` with both
+  a GPT-2 text generator that embeds a secret-keyed, context-dependent token
+  watermark and a detector for that watermark.
+- *What came back:* It added a logits processor that biases a keyed subset of
+  tokens during generation and a detector that reports the green-token count,
+  fraction, and z-score. A 99-token generated continuation was detected with
+  the same key (`z=7.0211`); checking with a different key gave `z=0.058` and
+  no detection. Text below the configured minimum returns
+  `insufficient_text`.
+- *What I changed:* I integrated it as optional, positive-only evidence in
+  `/submit`. A positive keyed detection contributes `0.10`; negative,
+  unavailable, or too-short results are excluded rather than being treated as
+  a human signal. I documented that it still needs false-positive and
+  editing-robustness testing.
 
 ---
 
 ## Stretch Features
-A third signal, with a written note on how you weighted the three.
+
+### Third signal — keyed watermark integration
+
+`watermark.py::generate` uses the project's local GPT-2 model and adds a
+small logit bonus to a context-dependent, secret-keyed subset of next tokens.
+`watermark.py::detect_watermark` tests text for an excess of those tokens with
+a one-sided z-score. `POST /submit` reports `watermark_status`,
+`watermark_detected`, `watermark_z_score`, and `watermark_score`. Generation
+and detection must use the same secret `AI201_WATERMARK_KEY`; keep it private
+and do not commit it.
+
+Try it locally:
+
+```bash
+export AI201_WATERMARK_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+python watermark.py generate "A short story about a lighthouse" --max-new-tokens 120
+python watermark.py detect "paste the generated continuation here"
+```
+
+In the local GPT-2 check, a 99-token watermarked continuation scored `z=7.0211`
+and was detected with its generation key. A different key scored `z=0.058`
+and was not detected. A short passage returned `insufficient_text`, not a
+human-like score. This is a controlled prototype: it cannot detect watermarks
+from generators using another method, and edits may weaken or remove its
+evidence.
+
+I also submitted generated watermarked text through the Flask `/submit` route
+with the matching key configured. The response reported
+`watermark_status="detected"`, `watermark_z_score=9.0139`, and
+`watermark_score=1.0`; its model and style scores were `0.4945` and `0.5211`,
+giving a combined score of `0.5570` (unsure). The test verified that the same
+fields were written to the audit entry. Without a configured key, the route
+reports `watermark_status="not_configured"` and leaves the watermark score
+null, so the existing two-signal mean is unchanged.
+
+**How I weighted the three:** `config.py` sets model `0.45`, style `0.45`, and
+watermark `0.10`. The `0.10` is included only for a positive detection; when
+watermark evidence is unavailable or negative, the other weights are
+renormalized to their prior equal-weight average. This conservative policy
+keeps lack of a watermark from being mistaken for evidence of human writing.
+The z-score is not itself a calibrated authorship probability, so this
+weighting needs false-positive and detection-rate evaluation on a
+representative labeled test set.
 
 
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->

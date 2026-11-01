@@ -18,16 +18,24 @@ you claim, so that line should read `scoring.py::combine_signals`.
 import config
 
 
-def combine_signals(model_score: float, style_score: float) -> float:
+def combine_signals(
+    model_score: float,
+    style_score: float,
+    watermark_score: float | None = None,
+) -> float:
     """
-    Combine two 0–1 signals into one 0–1 score.
+    Combine the model, style, and optional watermark evidence into one score.
 
-    Both inputs point the same way: higher means more likely AI. Your output
-    should too.
+    A missing watermark score is excluded and the remaining weights are
+    normalized. The caller should only provide a watermark score when a
+    watermark was positively detected; absence of evidence must not lower the
+    score.
 
     Args:
         model_score: from `detector.model_signal` — how predictable the text is.
         style_score: from `stylometry.style_signal` — the shape of the text.
+        watermark_score: 1.0 for a positive keyed watermark detection,
+            otherwise None.
 
     Returns:
         A float from 0.0 (confidently human) to 1.0 (confidently AI).
@@ -45,23 +53,31 @@ def combine_signals(model_score: float, style_score: float) -> float:
         reads more human means fewer false accusations and more AI text
         getting through. There's no weighting that avoids the trade.
 
-      - Milestone 4 asks you to find a case where your two signals split and
-        write it down. That case is what this rule exists to handle.
+      - If watermark evidence is absent, only model and style contribute;
+        this avoids treating an unknown watermark as evidence of human writing.
 
     The weighted mean is normalized by the sum of the configured weights, so
     valid non-negative weights still produce a score from 0 to 1.
     """
-    if not 0.0 <= model_score <= 1.0 or not 0.0 <= style_score <= 1.0:
+    signal_scores = (model_score, style_score)
+    if watermark_score is not None:
+        signal_scores += (watermark_score,)
+    if any(not 0.0 <= score <= 1.0 for score in signal_scores):
         raise ValueError("Signal scores must be between 0.0 and 1.0.")
 
-    model_weight = config.WEIGHT_MODEL_SIGNAL
-    style_weight = config.WEIGHT_STYLE_SIGNAL
-    total_weight = model_weight + style_weight
-    if model_weight < 0.0 or style_weight < 0.0 or total_weight <= 0.0:
+    weighted_scores = [
+        (config.WEIGHT_MODEL_SIGNAL, model_score),
+        (config.WEIGHT_STYLE_SIGNAL, style_score),
+    ]
+    if watermark_score is not None:
+        weighted_scores.append((config.WEIGHT_WATERMARK_SIGNAL, watermark_score))
+
+    total_weight = sum(weight for weight, _ in weighted_scores)
+    if any(weight < 0.0 for weight, _ in weighted_scores) or total_weight <= 0.0:
         raise ValueError("Signal weights must be non-negative with a positive sum.")
 
     return round(
-        (model_weight * model_score + style_weight * style_score) / total_weight,
+        sum(weight * score for weight, score in weighted_scores) / total_weight,
         4,
     )
 

@@ -32,6 +32,7 @@ import audit
 import config
 import scoring
 import stylometry
+import watermark
 
 app = Flask(__name__)
 
@@ -161,9 +162,8 @@ def submit():
     Expects JSON:
         {"text": "...", "creator_id": "..."}
 
-    Should return JSON with, at minimum:
-        {"content_id": "...", "guess": "...", "confidence": 0.0, "label": "...",
-         "model_score": 0.0, "style_score": 0.0}
+    The response and audit entry include model, style, and watermark evidence.
+    Watermark checks run only when AI201_WATERMARK_KEY is configured.
 
     ⚠️ **Both signal scores go in the response, not just the log.** Unit 8's
     `run_attacks.py` and `run_eval.py` read `model_score` and `style_score`
@@ -172,9 +172,8 @@ def submit():
     diagnostic you need to name a stage and a mechanism. You do not want to
     find that out after running the attack set.
 
-    Invalid or missing text and creator IDs are rejected before either signal
-    runs. A valid submission is scored by both signals, combined, labelled,
-    and written to the audit log.
+    Invalid or missing text and creator IDs are rejected before scoring. A
+    valid submission is evaluated, combined, labelled, and logged.
     """
     import detector
 
@@ -191,7 +190,26 @@ def submit():
 
     model_score = detector.model_signal(text)
     style_score = stylometry.style_signal(text)
-    combined_score = scoring.combine_signals(model_score, style_score)
+    watermark_status = "not_configured"
+    watermark_detected = None
+    watermark_score = None
+    watermark_z_score = None
+    if config.WATERMARK_KEY:
+        watermark_result = watermark.detect_watermark(
+            text,
+            key=config.WATERMARK_KEY,
+        )
+        watermark_status = watermark_result.status
+        watermark_detected = watermark_result.detected
+        watermark_z_score = watermark_result.z_score
+        if watermark_result.detected:
+            watermark_score = 1.0
+
+    combined_score = scoring.combine_signals(
+        model_score,
+        style_score,
+        watermark_score=watermark_score,
+    )
     guess, label = scoring.score_to_label(combined_score)
     content_id = str(uuid.uuid4())
 
@@ -203,6 +221,10 @@ def submit():
         style_score=style_score,
         combined_score=combined_score,
         label=label,
+        watermark_score=watermark_score,
+        watermark_status=watermark_status,
+        watermark_detected=watermark_detected,
+        watermark_z_score=watermark_z_score,
     )
 
     return jsonify({
@@ -213,6 +235,10 @@ def submit():
         "label": label,
         "model_score": model_score,
         "style_score": style_score,
+        "watermark_score": watermark_score,
+        "watermark_status": watermark_status,
+        "watermark_detected": watermark_detected,
+        "watermark_z_score": watermark_z_score,
     })
 
 

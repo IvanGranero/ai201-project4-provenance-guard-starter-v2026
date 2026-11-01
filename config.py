@@ -48,13 +48,14 @@ DETECTOR_MAX_TOKENS = 400
 
 
 # ─── Scoring (Milestone 4) ───────────────────────────────────────────────────
-# How much each signal counts toward the combined score.
-#
-# The two signals are averaged equally. The README documents this rule and the
-# observed case where the signals disagree.
+# How much each signal counts toward the combined score. The watermark is a
+# positive-only signal: when no matching watermark is detected, it is omitted
+# from the weighted mean rather than treated as evidence of human authorship.
 
-WEIGHT_MODEL_SIGNAL = 0.5
-WEIGHT_STYLE_SIGNAL = 0.5
+WEIGHT_MODEL_SIGNAL = 0.45
+WEIGHT_STYLE_SIGNAL = 0.45
+WEIGHT_WATERMARK_SIGNAL = 0.10
+WATERMARK_KEY = os.getenv("AI201_WATERMARK_KEY")
 
 
 # ─── Thresholds (Milestone 5) ────────────────────────────────────────────────
