@@ -499,17 +499,30 @@ second-language writing is the group the detector penalises most.
 
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |
+| 1. False positives | No more than 1/10 personally written pieces labelled high-confidence AI | 0/10 AI (synthetic proxy) | 0/10 AI (synthetic proxy) | 0/10 AI (synthetic proxy) | Not valid: samples are not my own writing |
+| 2. Score spread | AI average at least 0.25 above human average | -0.114 (0.517 vs 0.631) | -0.114 (0.517 vs 0.631) | -0.114 (0.517 vs 0.631) | Miss |
+| 3. Label coverage | Reach human, unsure, and AI | All three | All three | All three | Pass |
+| 4. Appeal path | 100% logged and under_review | 1/1 | 1/1 | 1/1 | Pass |
+| 5. Bad input | Missing, empty, oversized text return structured errors without a crash | 2/3; oversized accepted | 2/3; oversized accepted | 2/3; oversized accepted | Miss |
 
 **Real output from one trial**, pasted as text, naming the file and function
 that produced it:
 
-```json
+From `results/run_2026-11-08_0910_before.md`, produced by
+`run_eval.py::main` against `app.py::submit` (criterion 5, missing text):
 
+```json
+{
+  "status": 400,
+  "guess": null,
+  "confidence": null,
+  "model_score": null,
+  "style_score": null,
+  "label": null,
+  "error": "invalid_text",
+  "message": "text must be a non-empty string.",
+  "sent": "{\"creator_id\": \"eval_missing_text\"}"
+}
 ```
 
 **Diagnoses**
@@ -528,6 +541,16 @@ that produced it:
 
      Look for a pattern. Five failures on one signal is one problem, not five. -->
 
+
+The score-spread target missed in all three trials: the AI-reference samples
+averaged 0.5174, below the human-reference average of 0.6314. This is the
+opposite of the expected separation and matches the false-positive pattern in
+the attack run. Criterion 1's synthetic samples all landed in `unsure`, but
+that is only a proxy result; it cannot establish the false-positive rate on my
+own writing. Label coverage and the appeal path worked in every trial. The
+bad-input route returned structured 400 errors for missing and empty text, but
+accepted the 60,000-character input and labelled it AI, so it does not meet
+the criterion.
 
 
 ---
