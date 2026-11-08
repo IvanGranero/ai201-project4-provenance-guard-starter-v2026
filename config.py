@@ -72,7 +72,7 @@ WATERMARK_KEY = os.getenv("AI201_WATERMARK_KEY")
 # that decide who pays for it.
 
 HUMAN_THRESHOLD = 0.35
-AI_THRESHOLD = 0.65
+AI_THRESHOLD = 0.75
 
 # A weighted mean stays between its inputs. Keep the unsure band wide enough
 # to reflect uncertainty rather than turning a small score difference into a
