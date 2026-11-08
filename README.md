@@ -499,11 +499,11 @@ second-language writing is the group the detector penalises most.
 
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
-| 1. False positives | No more than 1/10 personally written pieces labelled high-confidence AI | 0/10 AI (synthetic proxy) | 0/10 AI (synthetic proxy) | 0/10 AI (synthetic proxy) | Not valid: samples are not my own writing |
-| 2. Score spread | AI average at least 0.25 above human average | -0.114 (0.517 vs 0.631) | -0.114 (0.517 vs 0.631) | -0.114 (0.517 vs 0.631) | Miss |
-| 3. Label coverage | Reach human, unsure, and AI | All three | All three | All three | Pass |
-| 4. Appeal path | 100% logged and under_review | 1/1 | 1/1 | 1/1 | Pass |
-| 5. Bad input | Missing, empty, oversized text return structured errors without a crash | 2/3; oversized accepted | 2/3; oversized accepted | 2/3; oversized accepted | Miss |
+| 1. False positives | No more than 1/10 personally written pieces labelled high-confidence AI | 0/10 AI (synthetic proxy) | 0/10 AI (synthetic proxy) | 0/10 AI (synthetic proxy) | MISSED — invalid sample set |
+| 2. Score spread | AI average at least 0.25 above human average | -0.114 (0.517 vs 0.631) | -0.114 (0.517 vs 0.631) | -0.114 (0.517 vs 0.631) | MISSED |
+| 3. Label coverage | Reach human, unsure, and AI | All three | All three | All three | MET |
+| 4. Appeal path | 100% logged and under_review | 1/1 | 1/1 | 1/1 | MET |
+| 5. Bad input | Missing, empty, oversized text return structured errors without a crash | 2/3; oversized accepted | 2/3; oversized accepted | 2/3; oversized accepted | MISSED |
 
 **Real output from one trial**, pasted as text, naming the file and function
 that produced it:
@@ -542,15 +542,80 @@ From `results/run_2026-11-08_0910_before.md`, produced by
      Look for a pattern. Five failures on one signal is one problem, not five. -->
 
 
-The score-spread target missed in all three trials: the AI-reference samples
-averaged 0.5174, below the human-reference average of 0.6314. This is the
-opposite of the expected separation and matches the false-positive pattern in
-the attack run. Criterion 1's synthetic samples all landed in `unsure`, but
-that is only a proxy result; it cannot establish the false-positive rate on my
-own writing. Label coverage and the appeal path worked in every trial. The
-bad-input route returned structured 400 errors for missing and empty text, but
-accepted the 60,000-character input and labelled it AI, so it does not meet
-the criterion.
+Criterion 1 is MISSED because the inputs were generated proxies, not my own
+unaided writing. The 0/10 proxy result cannot establish the false-positive
+rate on my work; this is a test-setup limitation, not evidence about a service
+stage.
+
+Criterion 2 is MISSED in all three trials: the AI-reference samples averaged
+0.5174, below the human-reference average of 0.6314 (target: AI at least 0.25
+higher). **Stages: signal one, signal two, and the combining rule.** Signal
+one inverted the expected ordering (AI mean 0.5079; human mean 0.7184), while
+signal two barely separated the sets (0.5268 versus 0.5444). The normalized
+45/45 average therefore left the AI mean lower. This matches the attack-run
+pattern where conventional human writing often scores above the AI threshold.
+
+Criterion 3 is MET: human, unsure, and AI were all reached in every trial.
+Criterion 4 is MET: all three appeals returned `under_review` and had an
+`under_review` appeal event in the audit log.
+
+Criterion 5 is MISSED in all three trials. **Stage: route.** The route rejects
+missing and empty text with structured 400 responses, but has no maximum-size
+check, so the 60,000-character body reaches scoring and is labelled AI. Signal
+one truncates its input to 400 tokens, so that score does not describe the
+entire submitted text.
+
+**Broken attacks — stage and mechanism**
+
+- **EV01 — signal one / combining rule:** Typos made the model signal score
+  0.1635; the style score was 0.552. Their average was 0.3578, just above the
+  human threshold, so the AI text landed in `unsure`.
+- **EV02, EV03, EV06, EV07 — signal two / combining rule:** Sentence
+  fragmentation, a pasted quotation, uneven sentence lengths, and punctuation
+  changed the style measurements (0.4121–0.5376). Averaging them with the
+  model scores kept all four AI texts below the AI threshold (`unsure`).
+- **EV04 — signal one / combining rule:** Unusual words raised perplexity,
+  yielding a 0.6114 model score; the combined score was 0.5749, so the AI text
+  was `unsure`.
+- **EV05 — both signals / combining rule:** Heavy human editing lowered both
+  scores to 0.3212 and 0.4066; the combined 0.3639 result was `unsure`.
+- **EV08 — route / signal one / label mapping:** The route accepts text below
+  the model's useful token window. The model score was 0.2452 and the combined
+  0.3166 crossed the human threshold, so AI text was labelled `human`.
+- **EV09 — signal two / combining rule:** The bolted-on human opening created
+  disagreement (model 0.7042, style 0.4542); the average 0.5792 was `unsure`.
+- **FP02–FP07 — signal one / combining rule / label mapping:** Formal,
+  second-language, rubric-shaped, technical, template-like, and repetitive
+  human writing produced model scores of 0.7387–0.8816. Style scores
+  (0.5055–0.5868) did not counter them; the 45/45 average crossed the 0.65 AI
+  threshold for all six.
+- **PI02 — signal one / combining rule / label mapping:** The instruction-like
+  prefix changed the AI text's predictability; model score 0.2044 and style
+  score 0.3843 combined to 0.2944, which the label mapping correctly turned
+  into `human` under the 0.35 cutoff.
+- **MF02 — route / signal one:** The route accepts a one-character string;
+  signal one raises `ValueError` because it has fewer than three tokens. The
+  exception is not handled at the route, so the response is a 500 with a
+  Werkzeug debugger page.
+- **MF03, MF04 — route / signal one / combining rule:** Control characters and
+  punctuation-only text are accepted. Signal one returned 0.0000 and 0.0112;
+  combined scores 0.1666 and 0.2556 became confident `human` labels despite
+  having no meaningful prose to assess.
+- **MF05, MF06, MF07 — signal one / combining rule / label mapping:** The
+  model signal is not calibrated for a repeated single token, emoji-only
+  input, or Arabic text. It returned 0.9976, 0.9969, and 0.9064 respectively;
+  the resulting combined scores all crossed the AI threshold.
+- **MF08 — route / signal one / combining rule:** The route has no input-size
+  limit. Signal one truncates the 60,000-character text to 400 tokens while
+  the style signal scores the full input; the combined score 0.8792 is an
+  overconfident AI decision on an oversized request.
+
+**Pattern:** Signal one is the common source of both false positives and
+evasion: perplexity is being treated as authorship evidence even for unusual,
+short, non-English, or formulaic prose. Signal two's simple style measures
+are also easy to perturb. The 45/45 combining rule and fixed label cutoffs
+turn those noisy signals into confident labels; the route additionally needs
+minimum- and maximum-input validation.
 
 
 ---
