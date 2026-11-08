@@ -187,6 +187,23 @@ def submit():
         return jsonify({"error": "invalid_text", "message": "text must be a non-empty string."}), 400
     if not isinstance(creator_id, str) or not creator_id.strip():
         return jsonify({"error": "invalid_creator_id", "message": "creator_id must be a non-empty string."}), 400
+    if len(text) > config.MAX_SUBMISSION_CHARS:
+        return jsonify({
+            "error": "text_too_long",
+            "message": f"text must not exceed {config.MAX_SUBMISSION_CHARS} characters.",
+        }), 413
+
+    token_count = detector.token_count(text)
+    if token_count < 3:
+        return jsonify({
+            "error": "text_too_short",
+            "message": "text must contain at least three model tokens to score.",
+        }), 400
+    if token_count > config.DETECTOR_MAX_TOKENS:
+        return jsonify({
+            "error": "text_too_long",
+            "message": f"text must not exceed {config.DETECTOR_MAX_TOKENS} model tokens.",
+        }), 413
 
     model_score = detector.model_signal(text)
     style_score = stylometry.style_signal(text)

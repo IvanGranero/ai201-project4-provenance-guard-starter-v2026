@@ -328,6 +328,25 @@ $ curl "http://127.0.0.1:5000/log?limit=2"
   a human signal. I documented that it still needs false-positive and
   editing-robustness testing.
 
+**Moment 3 — interpreting test results**
+
+- *What I asked for:* I asked the AI assistant to compare my three-trial
+  evaluation and full attack runs, connect failures to the route and scoring
+  stages, and suggest one measurable improvement rather than changing several
+  things at once.
+- *What came back:* It highlighted that the score-spread result was reversed
+  (AI-reference average `0.5174`, human-reference average `0.6314`) and that six
+  human-writing attacks were labelled AI. It suggested raising the AI cutoff
+  from `0.65` to `0.75` to move borderline accusations into `unsure`.
+- *What I changed:* At my direction, the assistant changed the cutoff and
+  helped record the before/after results. I reran the attack and evaluation
+  sets: BROKE attacks fell from 23 to 15, with FP02–FP07 moving from AI to
+  unsure, but nine of ten evasion attacks still avoided an AI label. I then
+  asked it to add route-level bounds for short and oversized submissions; that
+  second improvement has not yet been retested.
+
+
+
 ---
 
 ## Stretch Features
@@ -374,6 +393,18 @@ keeps lack of a watermark from being mistaken for evidence of human writing.
 The z-score is not itself a calibrated authorship probability, so this
 weighting needs false-positive and detection-rate evaluation on a
 representative labeled test set.
+
+### Second improvement — pre-score submission bounds
+
+The 09:25 attack run showed a one-character submission reaching the model and
+returning a 500, while a 60,000-character submission was silently truncated by
+the detector and still received an authorship label. I added route-level
+validation before either signal runs: text must be at most 2,400 characters
+and between 3 and 400 GPT-2 tokens. Short input now gets a structured 400;
+oversized input gets a structured 413. This is intended to address MF02 and
+MF08 and the oversized-text criterion, without changing valid-text scoring.
+I have not rerun the attacks or evaluation after this change; the 09:25 results
+above remain the measured baseline, and those outcomes are pending retest.
 
 
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
@@ -689,13 +720,59 @@ not fix the underlying perplexity/style limitations.
 <!-- For each attack still getting through and each criterion still missed:
      what you'd do, and why you stopped. -->
 
-EV01–EV09, PI02, and MF02–MF05 plus MF08 remain broken. The threshold change
-does not validate short or oversized requests and does not make the signals
-more reliable on adversarial edits, prompt-prefixed AI text, or nonsensical
-content. I stopped after this single change so its effect could be measured
-separately; the route-validation and signal-calibration diagnoses remain for
-separate trials. The before-run score-spread criterion also needs to be
-measured again after the threshold change.
+**Attacks still BROKE**
+
+The list below reflects the 09:25 run, before the second improvement in
+**Stretch Features**. MF02 and MF08 are the targets of that new validation
+change, but I have not reclassified them without a retest.
+
+- **EV01–EV09 (evasion; signals one and two, then combining):** Adversarial
+  edits still put AI text in `unsure` or `human`. Next I would calibrate both
+  signals against edited variants and abstain when their evidence is weak or
+  conflicts. I stopped before changing either signal so the threshold
+  experiment remained isolated.
+- **PI02 (signal one and label mapping):** The instruction-like prefix raised
+  perplexity enough to produce a human-leaning score, which the `0.35` human
+  cutoff mapped to `human`. Next I would test prompt-prefixed samples during
+  signal calibration and route ambiguous cases to review. I stopped because
+  there is no prompt-aware stage in this detector and adding one would be a
+  separate change.
+- **MF02 (route and signal one):** A one-character body reaches the model,
+  which raises an uncaught `ValueError` and returns a 500 debugger page. Next
+  I would validate minimum usable input before scoring and return a structured
+  400. I stopped to avoid combining route validation with the threshold trial.
+- **MF03–MF04 (route, signal one, and combining):** Control characters and
+  punctuation-only text are accepted, receive near-zero model scores, and are
+  labelled `human`. Next I would reject inputs with no meaningful words or
+  return an explicit non-decision. I stopped because this is a separate input
+  validation change.
+- **MF05 (signal one and combining):** A single repeated character is
+  predictable to the model and receives a `0.9976` AI score. Next I would
+  calibrate or abstain on extremely repetitive, low-information text. I
+  stopped to keep the threshold change as the only intervention.
+- **MF08 (route and signal one):** The route accepts 60,000 characters while
+  signal one scores only the first 400 tokens. Next I would enforce a maximum
+  input size and return a structured error instead of classifying a truncated
+  submission. I stopped because that is an independent route change.
+
+**Criteria still MISSED**
+
+- **Criterion 1:** The proxy texts are not my own unaided writing, so this
+  cannot measure my false-positive rate. Next I need ten genuine samples; I
+  stopped rather than claim generated text as my own.
+- **Criterion 2:** The AI-minus-human score difference remains `-0.1141`,
+  below the `+0.25` target, before and after the threshold change. Next I would
+  calibrate the signals or their weights using labeled examples. I stopped
+  because changing signal weights at the same time would make the threshold
+  result impossible to isolate.
+- **Criterion 5:** Missing and empty text are rejected, but the 60,000-character
+  input is accepted and labelled AI. Next I would add route-level size and
+  minimum-input checks. I stopped to keep this separate from the threshold
+  trial.
+
+Criterion 4 was MET in the before run, but the 09:25 evaluation did not call
+`/appeal`, so there is no after-run measurement. I left `run_eval.py` unchanged
+and did not claim the appeal result carried over.
 
 
 **The trade I'd make if this ran for real:**
@@ -703,11 +780,11 @@ measured again after the threshold change.
 <!-- Two sentences. Fewer wrong accusations means more AI text getting through.
      Say which way you'd go and WHO PAYS FOR IT. -->
 
-I would keep the wider unsure band for a writing service, because an unsure
-result can go to human review while a confident false accusation can harm a
-writer. The cost is that AI writing is less likely to receive a confident AI
-label; in this attack run, nine of ten evasion samples still avoided that
-label.
+I would keep the `0.75` cutoff and err toward protecting writers: the site and
+its reviewers pay for more manual reviews and some AI work passing as `unsure`,
+rather than writers paying for confident false accusations. That cost is real
+here—nine of ten AI evasion attacks still avoided an AI label—so the service
+operator bears the missed-detection and review burden.
 
 
 

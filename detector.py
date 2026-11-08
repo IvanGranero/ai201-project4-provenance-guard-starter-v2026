@@ -82,6 +82,13 @@ def _load():
     return _model, _tokenizer
 
 
+def token_count(text: str) -> int:
+    """Count untruncated model tokens so the route can validate before scoring."""
+    _, tokenizer = _load()
+    encoded = tokenizer(text, truncation=False)
+    return len(encoded["input_ids"])
+
+
 def perplexity(text: str) -> float:
     """
     How surprised the model is by this text. Lower means more predictable.
